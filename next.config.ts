@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
   },
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "covers.openlibrary.org" }],
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
