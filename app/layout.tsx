@@ -5,6 +5,7 @@ import { Suspense } from "react";
 
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import { Toaster } from "sonner";
 
 const imbPlexSerif = IBM_Plex_Serif({
   subsets: ["latin"],
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Navbar />
           </Suspense>
           {children}
+          <Toaster />
         </ClerkProvider>
       </body>
     </html>

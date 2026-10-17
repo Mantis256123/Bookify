@@ -16,7 +16,16 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { cn } from "@/lib/utils";
+import { cn, parseBookFile } from "@/lib/utils";
+import {
+  checkBookExists,
+  createBook,
+  saveBookSegments,
+} from "@/lib/actions/book.actions";
+import { useAuth } from "@clerk/nextjs";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { upload } from "@vercel/blob/client";
 
 const voices = [
   { group: "Male Voices", items: ["dave", "daniel", "chris"] },
@@ -49,16 +58,113 @@ const UploadForm = () => {
   const bookFile = useWatch({ control: form.control, name: "bookFile" });
   const coverFile = useWatch({ control: form.control, name: "coverFile" });
 
+  const { userId } = useAuth();
+  const router = useRouter();
+
   const onSubmit = async (values: BookUploadFormValues) => {
+    if (!userId) {
+      toast.error("Please login to upload a book.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      console.info("Book upload ready", {
-        ...values,
-        bookFile: values.bookFile.name,
-        coverFile: values.coverFile?.name,
+      const existsCheck = await checkBookExists(values.title);
+      if (existsCheck.exists && existsCheck.book) {
+        toast.info("Book with the same title already exists.");
+        form.reset();
+        router.push(`/books/${existsCheck.book.slug}`);
+        return;
+      }
+
+      const fileTitle = values.title.replace(/\s+/g, "_").toLowerCase();
+      const bookFile = values.bookFile;
+
+      const parsedBook = await parseBookFile(bookFile);
+      if (parsedBook.content.length === 0) {
+        toast.error("The selected file does not contain readable text.");
+        return;
+      }
+
+      const contentType = bookFile.type || "application/octet-stream";
+      const uploadedBookBlob = await upload(fileTitle, bookFile, {
+        access: "public",
+        handleUploadUrl: "/api/upload",
+        contentType,
       });
+
+      let coverUrl = "/assets/book-cover.svg";
+      let coverBlobKey: string | undefined;
+
+      if (values.coverFile) {
+        const coverFile = values.coverFile;
+        const uploadedCoverBlob = await upload(
+          `${fileTitle}_cover.png`,
+          coverFile,
+          {
+            access: "public",
+            handleUploadUrl: "/api/upload",
+            contentType: coverFile.type,
+          },
+        );
+        coverUrl = uploadedCoverBlob.url;
+        coverBlobKey = uploadedCoverBlob.pathname;
+      } else if (parsedBook.cover) {
+        const response = await fetch(parsedBook.cover);
+        if (!response.ok) {
+          throw new Error("Could not prepare the generated book cover.");
+        }
+        const blob = await response.blob();
+        const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
+          contentType: "image/png",
+        });
+        coverUrl = uploadedCoverBlob.url;
+        coverBlobKey = uploadedCoverBlob.pathname;
+      }
+
+      const book = await createBook({
+        clerkId: userId,
+        title: values.title,
+        author: values.author,
+        persona: values.voice,
+        fileURL: uploadedBookBlob.url,
+        fileBlobKey: uploadedBookBlob.pathname,
+        coverURL: coverUrl,
+        coverBlobKey,
+        fileSize: bookFile.size,
+      });
+
+      if (!book.success || !book.data) {
+        throw new Error("Could not create the book.");
+      }
+      if (book.alreadyExists) {
+        toast.info("Book with the same title already exists.");
+        form.reset();
+        router.push(`/books/${book.data.slug}`);
+        return;
+      }
+
+      const segmentsResult = await saveBookSegments(
+        book.data._id.toString(),
+        userId,
+        parsedBook.content,
+      );
+      if (!segmentsResult?.success) {
+        toast.error("Failed to save book segments. Please try again.");
+        throw new Error("Could not save the book content.");
+      }
+
       form.reset();
+      router.push(`/`);
+    } catch (error) {
+      console.error("Error uploading book:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not upload the book. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -204,10 +310,10 @@ const UploadForm = () => {
                       <>
                         <Upload className="upload-dropzone-icon" />
                         <span className="upload-dropzone-text">
-                          Click to upload PDF
+                          Click to upload a book file
                         </span>
                         <span className="upload-dropzone-hint">
-                          PDF file (max 50MB)
+                          PDF, Word, or TXT file (max 50MB)
                         </span>
                       </>
                     )}
@@ -296,7 +402,7 @@ const UploadForm = () => {
                           Click to upload cover image
                         </span>
                         <span className="upload-dropzone-hint">
-                          Leave empty to auto-generate from PDF
+                          Leave empty to use a default cover
                         </span>
                       </>
                     )}
