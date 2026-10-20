@@ -6,7 +6,13 @@ const nextConfig: NextConfig = {
     agentFeedback: true,
   },
   images: {
-    remotePatterns: [{ protocol: "https", hostname: "covers.openlibrary.org" }],
+    remotePatterns: [
+      { protocol: "https", hostname: "covers.openlibrary.org" },
+      {
+        protocol: "https",
+        hostname: "dcp9mczct6qgfsls.public.blob.vercel-storage.com",
+      },
+    ],
   },
   cacheComponents: true,
   partialPrefetching: true,

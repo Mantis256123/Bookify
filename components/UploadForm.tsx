@@ -89,7 +89,7 @@ const UploadForm = () => {
       const contentType = bookFile.type || "application/octet-stream";
       const uploadedBookBlob = await upload(fileTitle, bookFile, {
         access: "public",
-        handleUploadUrl: "/api/upload",
+        handleUploadUrl: "/api/uploads",
         contentType,
       });
 
@@ -103,7 +103,7 @@ const UploadForm = () => {
           coverFile,
           {
             access: "public",
-            handleUploadUrl: "/api/upload",
+            handleUploadUrl: "/api/uploads",
             contentType: coverFile.type,
           },
         );
@@ -117,7 +117,7 @@ const UploadForm = () => {
         const blob = await response.blob();
         const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
           access: "public",
-          handleUploadUrl: "/api/upload",
+          handleUploadUrl: "/api/uploads",
           contentType: "image/png",
         });
         coverUrl = uploadedCoverBlob.url;
