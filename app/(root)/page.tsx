@@ -4,7 +4,6 @@ import { getAllBooks } from "@/lib/actions/book.actions";
 import { connection } from "next/server";
 
 export const instant = false;
-export const dynamic = "force-dynamic";
 
 export default async function Page() {
   await connection();
