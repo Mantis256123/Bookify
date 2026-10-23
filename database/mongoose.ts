@@ -2,12 +2,6 @@ import mongoose from "mongoose";
 
 const MONGODB_URL = process.env.MONGODB_URL;
 
-if (!MONGODB_URL) {
-  throw new Error(
-    "Please define the MONGODB_URL environment variable inside .env.local",
-  );
-}
-
 declare global {
   var mongooseCache: {
     conn: typeof mongoose | null;
@@ -20,6 +14,12 @@ const cached =
   (global.mongooseCache = { conn: null, promise: null });
 
 export const connectToDatabase = async () => {
+  if (!MONGODB_URL) {
+    throw new Error(
+      "MONGODB_URL is not configured. Add it to the deployment environment variables.",
+    );
+  }
+
   if (cached.conn) {
     return cached.conn;
   }
