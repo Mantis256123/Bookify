@@ -26,6 +26,8 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
+import { renderAsync } from "docx-preview";
+import html2canvas from "html2canvas";
 
 const voices = [
   { group: "Male Voices", items: ["dave", "daniel", "chris"] },
@@ -51,6 +53,7 @@ const UploadForm = () => {
     defaultValues: {
       coverFile: undefined,
       title: "",
+      description: "",
       author: "",
       voice: "rachel",
     },
@@ -79,6 +82,9 @@ const UploadForm = () => {
 
       const fileTitle = values.title.replace(/\s+/g, "_").toLowerCase();
       const bookFile = values.bookFile;
+      const fileExtension = bookFile.name
+        .slice(bookFile.name.lastIndexOf("."))
+        .toLowerCase();
 
       const parsedBook = await parseBookFile(bookFile);
       if (parsedBook.content.length === 0) {
@@ -87,11 +93,15 @@ const UploadForm = () => {
       }
 
       const contentType = bookFile.type || "application/octet-stream";
-      const uploadedBookBlob = await upload(fileTitle, bookFile, {
-        access: "public",
-        handleUploadUrl: "/api/uploads",
-        contentType,
-      });
+      const uploadedBookBlob = await upload(
+        `${fileTitle}${fileExtension}`,
+        bookFile,
+        {
+          access: "public",
+          handleUploadUrl: "/api/uploads",
+          contentType,
+        },
+      );
 
       let coverUrl = "/assets/book-cover.svg";
       let coverBlobKey: string | undefined;
@@ -122,15 +132,40 @@ const UploadForm = () => {
         });
         coverUrl = uploadedCoverBlob.url;
         coverBlobKey = uploadedCoverBlob.pathname;
+      } else {
+        const generatedCover = await createDocumentThumbnail(
+          bookFile,
+          fileExtension,
+        );
+        if (generatedCover) {
+          const response = await fetch(generatedCover);
+          if (!response.ok) {
+            throw new Error("Could not prepare the document thumbnail.");
+          }
+          const blob = await response.blob();
+          const uploadedCoverBlob = await upload(
+            `${fileTitle}_cover.png`,
+            blob,
+            {
+              access: "public",
+              handleUploadUrl: "/api/uploads",
+              contentType: "image/png",
+            },
+          );
+          coverUrl = uploadedCoverBlob.url;
+          coverBlobKey = uploadedCoverBlob.pathname;
+        }
       }
 
       const book = await createBook({
         clerkId: userId,
         title: values.title,
+        description: values.description,
         author: values.author,
         persona: values.voice,
         fileURL: uploadedBookBlob.url,
         fileBlobKey: uploadedBookBlob.pathname,
+        fileExtension,
         coverURL: coverUrl,
         coverBlobKey,
         fileSize: bookFile.size,
@@ -169,6 +204,58 @@ const UploadForm = () => {
       setIsSubmitting(false);
     }
   };
+
+  async function createDocumentThumbnail(
+    file: File,
+    extension: string,
+  ): Promise<string | null> {
+    if (extension === ".txt") {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+
+      const lines = (await file.text()).split(/\r?\n/).slice(0, 42);
+      canvas.width = 800;
+      canvas.height = 1100;
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#212a3b";
+      context.font = "20px monospace";
+      lines.forEach((line, index) => {
+        context.fillText(line.slice(0, 68), 56, 72 + index * 24);
+      });
+      return canvas.toDataURL("image/png");
+    }
+
+    if (extension !== ".docx") return null;
+
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "-10000px";
+    container.style.top = "0";
+    container.style.width = "900px";
+    container.style.backgroundColor = "#ffffff";
+    document.body.appendChild(container);
+
+    try {
+      await renderAsync(await file.arrayBuffer(), container, undefined, {
+        inWrapper: true,
+        breakPages: true,
+        ignoreLastRenderedPageBreak: false,
+        useBase64URL: true,
+      });
+      const firstPage = container.querySelector<HTMLElement>(".docx");
+      if (!firstPage) return null;
+      const canvas = await html2canvas(firstPage, {
+        backgroundColor: "#ffffff",
+        scale: 1.5,
+        useCORS: true,
+      });
+      return canvas.toDataURL("image/png");
+    } finally {
+      container.remove();
+    }
+  }
 
   const getFileError = (file: File, type: "book" | "cover") => {
     const extension = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
@@ -427,6 +514,24 @@ const UploadForm = () => {
                   />
                 </FormControl>
                 <FormMessage name="title" />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Description</FormLabel>
+                <FormControl>
+                  <input
+                    {...field}
+                    className="form-input"
+                    placeholder="ex: A book about financial independence"
+                  />
+                </FormControl>
+                <FormMessage name="description" />
               </FormItem>
             )}
           />

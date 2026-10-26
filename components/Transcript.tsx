@@ -24,6 +24,12 @@ export default function Transcript({
   useEffect(() => {
     const container = messagesRef.current;
     if (container) {
+      const isNearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        96;
+      if (!isNearBottom) {
+        return;
+      }
       container.scrollTop = container.scrollHeight;
     }
   }, [messages, currentMessage, currentUserMessage]);
