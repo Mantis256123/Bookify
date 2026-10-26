@@ -22,22 +22,22 @@ export async function POST(request: Request): Promise<NextResponse> {
           allowedContentTypes: [
             "application/pdf",
             "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain",
             "image/jpeg",
+            "image/jpg",
             "image/png",
             "image/webp",
+            "image/gif",
+            "image/svg+xml",
           ],
           addRandomSuffix: true,
           maximumSizeInBytes: MAX_FILE_SIZE,
           tokenPayload: JSON.stringify({ userId }),
         };
       },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
+      onUploadCompleted: async ({ blob }) => {
         console.log("File uploaded to blob: ", blob.url);
-
-        const payload = tokenPayload ? JSON.parse(tokenPayload) : null;
-        const userId = payload?.userId;
-
-        // TODO: PostHog
       },
     });
 

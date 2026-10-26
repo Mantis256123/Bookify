@@ -28,6 +28,7 @@ const VAPI_API_KEY = process.env.NEXT_PUBLIC_VAPI_API_KEY;
 const TIMER_INTERVAL_MS = 1000;
 const SECONDS_PER_MINUTE = 60;
 const TIME_WARNING_THRESHOLD = 60; // Show warning when this many seconds remain
+const VAPI_SILENCE_TIMEOUT_SECONDS = 3600;
 
 let vapi: InstanceType<typeof Vapi>;
 function getVapi() {
@@ -41,6 +42,9 @@ function getVapi() {
   }
   return vapi;
 }
+
+const getFirstMessage = (title: string) =>
+  `Hey, good to meet you. Quick question before we dive in - have you actually read ${title} yet, or are we starting fresh?`;
 
 export type CallStatus =
   | "idle"
@@ -60,15 +64,18 @@ export function useVapi(book: IBook) {
   const [currentUserMessage, setCurrentUserMessage] = useState("");
   const [duration, setDuration] = useState(0);
   const [limitError, setLimitError] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const isStoppingRef = useRef(false);
+  const pendingMessageRef = useRef<string | null>(null);
 
   // Keep refs in sync with latest values for use in callbacks
   // const maxDurationRef = useLatestRef(limits.maxSessionMinutes * 60);
   const durationRef = useLatestRef(duration);
+  const currentMessageRef = useLatestRef(currentMessage);
   const voice = book.persona || DEFAULT_VOICE;
 
   // Set up Vapi event listeners
@@ -76,9 +83,26 @@ export function useVapi(book: IBook) {
     const handlers = {
       "call-start": () => {
         isStoppingRef.current = false;
+        getVapi().setMuted(true);
+        setIsMuted(true);
         setStatus("starting"); // AI speaks first, wait for it
         setCurrentMessage("");
         setCurrentUserMessage("");
+
+        const pendingMessage = pendingMessageRef.current;
+        pendingMessageRef.current = null;
+        if (pendingMessage) {
+          setMessages((previousMessages) => [
+            ...previousMessages,
+            { role: "user", content: pendingMessage },
+          ]);
+          setStatus("thinking");
+          getVapi().send({
+            type: "add-message",
+            message: { role: "user", content: pendingMessage },
+            triggerResponseEnabled: true,
+          });
+        }
 
         // Start duration timer
         startTimeRef.current = Date.now();
@@ -108,6 +132,8 @@ export function useVapi(book: IBook) {
         setStatus("idle");
         setCurrentMessage("");
         setCurrentUserMessage("");
+        setIsMuted(false);
+        pendingMessageRef.current = null;
 
         // Stop timer
         if (timerRef.current) {
@@ -136,14 +162,65 @@ export function useVapi(book: IBook) {
           // After AI finishes speaking, user can talk
           setStatus("listening");
         }
+
+        const completedMessage = currentMessageRef.current.trim();
+        if (completedMessage) {
+          setMessages((previousMessages) => {
+            const lastMessage = previousMessages.at(-1);
+            if (
+              lastMessage?.role === "assistant" &&
+              lastMessage.content === completedMessage
+            ) {
+              return previousMessages;
+            }
+            return [
+              ...previousMessages,
+              { role: "assistant", content: completedMessage },
+            ];
+          });
+          setCurrentMessage("");
+        }
       },
 
       message: (message: {
-        type: string;
+        type?: string;
         role?: string;
         transcriptType?: string;
         transcript?: string;
+        output?: string;
+        conversation?: Array<{
+          role?: string;
+          content?: string;
+        }>;
       }) => {
+        const addFinalMessage = (
+          role: "user" | "assistant",
+          content: string,
+        ) => {
+          const trimmedContent = content.trim();
+          if (!trimmedContent) return;
+
+          setMessages((previousMessages) => {
+            const isDupe = previousMessages.some(
+              (previousMessage) =>
+                previousMessage.role === role &&
+                previousMessage.content === trimmedContent,
+            );
+            if (isDupe) return previousMessages;
+
+            return [...previousMessages, { role, content: trimmedContent }];
+          });
+        };
+
+        if (message.type === "conversation-update") {
+          return;
+        }
+
+        if (message.type === "model-output" && typeof message.output === "string") {
+          setCurrentMessage(message.output.trim());
+          return;
+        }
+
         if (
           (message.role !== "user" && message.role !== "assistant") ||
           typeof message.transcript !== "string" ||
@@ -179,24 +256,15 @@ export function useVapi(book: IBook) {
 
         // Final transcript → add to messages
         if (message.transcriptType === "final") {
-          if (role === "assistant") setCurrentMessage("");
+          if (role === "assistant") {
+            const completedMessage = currentMessageRef.current || transcript;
+            setCurrentMessage("");
+            addFinalMessage(role, completedMessage);
+            return;
+          }
           if (role === "user") setCurrentUserMessage("");
 
-          setMessages((prev) => {
-            const isDupe = prev.some(
-              (m) =>
-                m.role === role && m.content === transcript,
-            );
-            return isDupe
-              ? prev
-              : [
-                  ...prev,
-                  {
-                    role,
-                    content: transcript,
-                  },
-                ];
-          });
+          addFinalMessage(role, transcript);
         }
       },
 
@@ -206,6 +274,7 @@ export function useVapi(book: IBook) {
         setStatus("idle");
         setCurrentMessage("");
         setCurrentUserMessage("");
+        pendingMessageRef.current = null;
 
         // Stop timer on error
         if (timerRef.current) {
@@ -271,56 +340,76 @@ export function useVapi(book: IBook) {
     };
   }, []);
 
-  const start = useCallback(async () => {
-    if (!userId) {
-      setLimitError("Please sign in to start a voice session.");
-      return;
-    }
-
-    setLimitError(null);
-    setStatus("connecting");
-
-    try {
-      // Check session limits and create session record
-      const result = await startVoiceSession(userId, book._id);
-
-      if (!result.success) {
-        setLimitError(
-          result.error || "Session limit reached. Please upgrade your plan.",
-        );
-        setStatus("idle");
-        return;
+  const start = useCallback(
+    async (options?: { speakFirst?: boolean }): Promise<boolean> => {
+      const speakFirst = options?.speakFirst ?? true;
+      if (!userId) {
+        setLimitError("Please sign in to start a voice session.");
+        return false;
       }
 
-      sessionIdRef.current = result.sessionId || null;
-      // Note: Server-returned maxDurationMinutes is informational only
-      // The actual limit is enforced by useLatestRef(limits.maxSessionMinutes * 60)
+      setLimitError(null);
+      setStatus("connecting");
 
-      const firstMessage = `Hey, good to meet you. Quick question before we dive in - have you actually read ${book.title} yet, or are we starting fresh?`;
+      try {
+        // Check session limits and create session record in DB
+        const result = await startVoiceSession(userId, book._id);
 
-      await getVapi().start(ASSISTANT_ID, {
-        firstMessage,
-        variableValues: {
-          title: book.title,
-          author: book.author,
-          bookId: book._id,
-        },
-        voice: {
-          provider: "11labs" as const,
-          voiceId: getVoice(voice).id,
-          model: "eleven_turbo_v2_5" as const,
-          stability: VOICE_SETTINGS.stability,
-          similarityBoost: VOICE_SETTINGS.similarityBoost,
-          style: VOICE_SETTINGS.style,
-          useSpeakerBoost: VOICE_SETTINGS.useSpeakerBoost,
-        },
-      });
-    } catch (err) {
-      console.error("Failed to start call:", err);
-      setStatus("idle");
-      setLimitError("Failed to start voice session. Please try again.");
-    }
-  }, [book._id, book.title, book.author, voice, userId]);
+        if (!result.success) {
+          setLimitError(
+            result.error || "Session limit reached. Please upgrade your plan.",
+          );
+          setStatus("idle");
+          return false;
+        }
+
+        sessionIdRef.current = result.sessionId || null;
+        // Note: Server-returned maxDurationMinutes is informational only
+        // The actual limit is enforced by useLatestRef(limits.maxSessionMinutes * 60)
+
+        type AssistantOverridesWithSilence = Parameters<
+          InstanceType<typeof Vapi>["start"]
+        >[1] & {
+          silenceTimeoutSeconds?: number;
+        };
+
+        const assistantOverrides: AssistantOverridesWithSilence = {
+          ...(speakFirst
+            ? {
+                firstMessage: getFirstMessage(book.title),
+                firstMessageMode: "assistant-speaks-first" as const,
+              }
+            : {
+                firstMessageMode: "assistant-waits-for-user" as const,
+              }),
+          silenceTimeoutSeconds: VAPI_SILENCE_TIMEOUT_SECONDS,
+          variableValues: {
+            title: book.title,
+            author: book.author,
+            bookId: book._id,
+          },
+          voice: {
+            provider: "11labs" as const,
+            voiceId: getVoice(voice).id,
+            model: "eleven_turbo_v2_5" as const,
+            stability: VOICE_SETTINGS.stability,
+            similarityBoost: VOICE_SETTINGS.similarityBoost,
+            style: VOICE_SETTINGS.style,
+            useSpeakerBoost: VOICE_SETTINGS.useSpeakerBoost,
+          },
+        };
+
+        await getVapi().start(ASSISTANT_ID, assistantOverrides);
+        return true;
+      } catch (err) {
+        console.error("Failed to start call:", err);
+        setStatus("idle");
+        setLimitError("Failed to start voice session. Please try again.");
+        return false;
+      }
+    },
+    [book._id, book.title, book.author, voice, userId],
+  );
 
   const stop = useCallback(() => {
     isStoppingRef.current = true;
@@ -334,10 +423,20 @@ export function useVapi(book: IBook) {
     status === "speaking";
 
   const sendMessage = useCallback(
-    (content: string) => {
+    async (content: string): Promise<boolean> => {
       const trimmedContent = content.trim();
-      if (!trimmedContent || !isActive) {
+      if (!trimmedContent) {
         return false;
+      }
+
+      if (!isActive) {
+        pendingMessageRef.current = trimmedContent;
+        const started = await start({ speakFirst: false });
+        if (!started) {
+          pendingMessageRef.current = null;
+          return false;
+        }
+        return true;
       }
 
       setMessages((previousMessages) => {
@@ -347,10 +446,7 @@ export function useVapi(book: IBook) {
         );
         return alreadyAdded
           ? previousMessages
-          : [
-              ...previousMessages,
-              { role: "user", content: trimmedContent },
-            ];
+          : [...previousMessages, { role: "user", content: trimmedContent }];
       });
       setStatus("thinking");
       getVapi().send({
@@ -363,8 +459,19 @@ export function useVapi(book: IBook) {
       });
       return true;
     },
-    [isActive],
+    [isActive, start],
   );
+
+  const toggleMute = useCallback(() => {
+    if (!isActive) {
+      return false;
+    }
+
+    const nextMutedState = !getVapi().isMuted();
+    getVapi().setMuted(nextMutedState);
+    setIsMuted(nextMutedState);
+    return true;
+  }, [isActive]);
 
   const clearError = useCallback(() => {
     setLimitError(null);
@@ -386,6 +493,8 @@ export function useVapi(book: IBook) {
     start,
     stop,
     sendMessage,
+    isMuted,
+    toggleMute,
     limitError,
     clearError,
     // maxDurationSeconds,

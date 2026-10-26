@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 import { Control, FieldPath, FieldValues } from "react-hook-form";
 import { LucideIcon } from "lucide-react";
 import z from "zod";
-import { UploadSchema } from "@/lib/zod";
+import { EditBookSchema, UploadSchema } from "@/lib/zod";
 
 // ============================================
 // DATABASE MODELS
@@ -13,11 +13,13 @@ export interface IBook extends Document {
   _id: string;
   clerkId: string;
   title: string;
+  description?: string;
   slug: string;
   author: string;
   persona?: string;
   fileURL: string;
   fileBlobKey: string;
+  fileExtension?: string;
   coverURL: string;
   coverBlobKey?: string;
   fileSize: number;
@@ -54,14 +56,17 @@ export interface IVoiceSession extends Document {
 // ============================================
 
 export type BookUploadFormValues = z.infer<typeof UploadSchema>;
+export type EditBookFormValues = z.infer<typeof EditBookSchema>;
 
 export interface CreateBook {
   clerkId: string;
   title: string;
+  description?: string;
   author: string;
   persona?: string;
   fileURL: string;
   fileBlobKey: string;
+  fileExtension: string;
   coverURL?: string;
   coverBlobKey?: string;
   fileSize: number;

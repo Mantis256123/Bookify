@@ -32,6 +32,7 @@ export const splitIntoSegments = (
   text: string,
   segmentSize: number = 500, // Maximum words per segment
   overlapSize: number = 50, // Words to overlap between segments for context
+  preserveWhitespace = false,
 ): TextSegment[] => {
   // Validate parameters to prevent infinite loops
   if (segmentSize <= 0) {
@@ -39,6 +40,16 @@ export const splitIntoSegments = (
   }
   if (overlapSize < 0 || overlapSize >= segmentSize) {
     throw new Error("overlapSize must be >= 0 and < segmentSize");
+  }
+
+  if (preserveWhitespace) {
+    const wordCount = text.trim()
+      ? text.trim().split(/\s+/).length
+      : 0;
+
+    return text.length > 0
+      ? [{ text, segmentIndex: 0, wordCount }]
+      : [];
   }
 
   const words = text.split(/\s+/).filter((word) => word.length > 0);
@@ -175,7 +186,7 @@ export async function parseBookFile(file: File): Promise<ParsedBook> {
 
   if (extension === ".txt" || file.type === "text/plain") {
     const text = await file.text();
-    return { content: splitIntoSegments(text) };
+    return { content: splitIntoSegments(text, 500, 50, true) };
   }
 
   //word document parsing using mammoth.js for .docx files
@@ -188,7 +199,7 @@ export async function parseBookFile(file: File): Promise<ParsedBook> {
     const { value } = await mammoth.extractRawText({
       arrayBuffer: await file.arrayBuffer(),
     });
-    return { content: splitIntoSegments(value) };
+    return { content: splitIntoSegments(value, 500, 50, true) };
   }
 
   if (extension === ".doc" || file.type === "application/msword") {

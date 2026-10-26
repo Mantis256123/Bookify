@@ -5,6 +5,7 @@ const BookSchema = new Schema<IBook>(
   {
     clerkId: { type: String, required: true },
     title: { type: String, required: true },
+    description: { type: String, required: true, default: "" },
     slug: {
       type: String,
       required: true,
@@ -16,6 +17,12 @@ const BookSchema = new Schema<IBook>(
     persona: { type: String },
     fileURL: { type: String, required: true },
     fileBlobKey: { type: String, required: true },
+    fileExtension: {
+      type: String,
+      required: true,
+      lowercase: true,
+      trim: true,
+    },
     coverURL: { type: String },
     coverBlobKey: { type: String },
     fileSize: { type: Number, required: true },

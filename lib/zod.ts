@@ -45,6 +45,15 @@ export const UploadSchema = z.object({
     )
     .optional(),
   title: z.string().trim().min(1, "Title is required."),
+  description: z.string().trim().optional(),
+  author: z.string().trim().min(1, "Author name is required."),
+  voice: z.string().min(1, "Choose an assistant voice."),
+});
+
+export const EditBookSchema = z.object({
+  coverFile: UploadSchema.shape.coverFile,
+  title: z.string().trim().min(1, "Title is required."),
+  description: z.string().trim().optional(),
   author: z.string().trim().min(1, "Author name is required."),
   voice: z.string().min(1, "Choose an assistant voice."),
 });

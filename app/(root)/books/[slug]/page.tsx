@@ -6,6 +6,7 @@ import Link from "next/link";
 import BookReader from "@/components/BookReader";
 import BookFileStats from "@/components/BookFileStats";
 import { getBookBySlug, getBookSegments } from "@/lib/actions/book.actions";
+import BookActionsMenu from "@/components/BookActionsMenu";
 import Image from "next/image";
 import { ArrowDown } from "lucide-react";
 
@@ -34,6 +35,8 @@ export default async function BookDetailsPage({
   const book = result.data;
   const segmentsResult = await getBookSegments(book._id.toString());
 
+  const isBookOwner = book.clerkId === userId;
+
   return (
     <div className="book-page-container">
       <Link href="/" className="back-btn-floating">
@@ -41,7 +44,7 @@ export default async function BookDetailsPage({
         <span className="sr-only">Back to library</span>
       </Link>
       <div className="mx-auto flex max-w-4xl flex-col gap-8">
-        <div className="vapi-header-card">
+        <div className="vapi-header-card relative">
           <div className="vapi-cover-wrapper flex flex-col items-center gap-4">
             <Image
               src={book.coverURL || "/assets/book-cover.svg"}
@@ -67,8 +70,30 @@ export default async function BookDetailsPage({
               </h1>
               <p className="mt-2 text-lg text-[#3d485e]">by {book.author}</p>
             </div>
-            <BookFileStats fileURL={book.fileURL} />
+            <BookFileStats
+              fileURL={book.fileURL}
+              fileExtension={book.fileExtension}
+            />
+           
+            <div>
+              <h2 className="font-serif text-2xl font-bold text-[#212a3b]">
+                Description
+              </h2>
+              <p className="mt-2 text-lg text-[#3d485e]">
+                {book.description || "No description available."}
+              </p>
+            </div>
           </div>
+          {isBookOwner && (
+            <BookActionsMenu
+              bookId={book._id.toString()}
+              title={book.title}
+              description={book.description}
+              author={book.author}
+              voice={book.persona}
+              coverURL={book.coverURL}
+            />
+          )}
         </div>
       </div>
       <div id="book-reader" className="scroll-mt-20">

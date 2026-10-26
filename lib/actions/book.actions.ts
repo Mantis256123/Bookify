@@ -1,11 +1,13 @@
 "use server";
 import { connectToDatabase } from "@/database/mongoose";
-import { CreateBook, TextSegment } from "@/types";
+import { CreateBook, EditBookFormValues, TextSegment } from "@/types";
 import { escapeRegex, generateSlug, serializeData } from "../utils";
 import Book from "@/database/models/books.model";
 import BookSegment from "@/database/models/book-segment.model";
 import mongoose from "mongoose";
 import { revalidatePath } from "next/cache";
+import { auth } from "@clerk/nextjs/server";
+import { del } from "@vercel/blob";
 
 export const getBookBySlug = async (bookId: string) => {
   try {
@@ -96,6 +98,95 @@ export const checkBookExists = async (title: string) => {
   } catch (error) {
     console.error("Error checking book exists:", error);
     return { exists: false, error: error };
+  }
+};
+
+export const deleteBook = async (bookId: string) => {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    await connectToDatabase();
+
+    const book = await Book.findOne({ _id: bookId, clerkId: userId }).lean();
+    if (!book) {
+      return { success: false, error: "Book not found" };
+    }
+
+    const blobPaths = [book.fileBlobKey, book.coverBlobKey].filter(
+      (path): path is string => Boolean(path),
+    );
+    if (blobPaths.length > 0) {
+      await del(blobPaths);
+    }
+
+    await BookSegment.deleteMany({ bookId });
+    await Book.findByIdAndDelete(bookId);
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting book:", error);
+    return { success: false, error: error };
+  }
+};
+
+export const updateBook = async (
+  bookId: string,
+  bookData: Pick<EditBookFormValues, "title" | "description" | "author" | "voice"> & {
+    coverURL?: string;
+    coverBlobKey?: string;
+  },
+) => {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    await connectToDatabase();
+
+    const book = await Book.findOne({ _id: bookId, clerkId: userId });
+    if (!book) {
+      return { success: false, error: "Book not found" };
+    }
+
+    const slug = generateSlug(bookData.title);
+    const duplicate = await Book.findOne({
+      slug,
+      _id: { $ne: bookId },
+    }).lean();
+    if (duplicate) {
+      return { success: false, error: "A book with this title already exists." };
+    }
+
+    const previousCoverBlobKey = book.coverBlobKey;
+    book.title = bookData.title;
+    book.description = bookData.description || "";
+    book.author = bookData.author;
+    book.persona = bookData.voice;
+    book.slug = slug;
+    if (bookData.coverURL && bookData.coverBlobKey) {
+      book.coverURL = bookData.coverURL;
+      book.coverBlobKey = bookData.coverBlobKey;
+    }
+    await book.save();
+
+    if (
+      bookData.coverBlobKey &&
+      previousCoverBlobKey &&
+      previousCoverBlobKey !== bookData.coverBlobKey
+    ) {
+      await del(previousCoverBlobKey);
+    }
+
+    revalidatePath("/");
+    revalidatePath(`/books/${slug}`);
+    return { success: true, data: serializeData(book) };
+  } catch (error) {
+    console.error("Error updating book:", error);
+    return { success: false, error };
   }
 };
 
