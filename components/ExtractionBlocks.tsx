@@ -10,6 +10,7 @@ export type ExtractionElement = {
   confidence?: number;
   pageNumber?: number;
   pageIndex?: number;
+  bounds?: { width?: number; height?: number; x?: number; y?: number };
   [key: string]: unknown;
 };
 
@@ -18,6 +19,7 @@ type ExtractionBlocksProps = {
   elements: ExtractionElement[];
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
+  hoveredElementId?: number | null;
 };
 
 function getElementText(element: ExtractionElement) {
@@ -82,6 +84,7 @@ export default function ExtractionBlocks({
   elements,
   copiedKey,
   onCopy,
+  hoveredElementId,
 }: ExtractionBlocksProps) {
   return (
     <div className="space-y-3">
@@ -91,7 +94,7 @@ export default function ExtractionBlocks({
             return (
               <article
                 key={element.id ?? index}
-                className="relative rounded-lg border border-[#d8cdbd] bg-[#f8f4e9] p-4"
+                className={`relative rounded-lg border ${hoveredElementId === index ? "border-[#5b8a30]" : "border-[#d8cdbd]"} bg-[#f8f4e9] p-4`}
               >
                 <div className="mb-2 flex flex-wrap items-center gap-2 pr-12 text-xs font-semibold uppercase tracking-wide text-[#8b7355]">
                   <span>Block {index + 1}</span>

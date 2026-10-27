@@ -26,6 +26,13 @@ type ExtractionResult = {
   };
 };
 
+type ImageBounds = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
 function splitIntoBlocks(markdown: string) {
   return markdown
     .split(/\n\s*\n/)
@@ -42,6 +49,9 @@ export default function ExtractTextWindow() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [hoveredElementId, setHoveredElementId] = useState<number | null>(null);
+  const [currentFile, setCurrentFile] = useState<File | null>(null);
 
   const copyToClipboard = async (text: string, key: string) => {
     await navigator.clipboard.writeText(text);
@@ -53,6 +63,7 @@ export default function ExtractTextWindow() {
     setFile(nextFile);
     setError("");
     setResult(null);
+    setImageSize({ width: 0, height: 0 });
     if (nextFile?.type.startsWith("image/")) {
       setFilePreview(URL.createObjectURL(nextFile));
     } else {
@@ -66,8 +77,11 @@ export default function ExtractTextWindow() {
       setError("Choose a PDF, Word, or image file first.");
       return;
     }
-
+    if (file === currentFile) {
+      return;
+    }
     setIsSubmitting(true);
+    setCurrentFile(file);
     setLoadingStep(0);
     setError("");
     setResult(null);
@@ -130,11 +144,51 @@ export default function ExtractTextWindow() {
           {file ? (
             <>
               {filePreview ? (
-                <img
-                  src={filePreview}
-                  alt="Selected image preview"
-                  className="mb-2 h-auto max-w-full rounded object-contain"
-                />
+                <div className="relative inline-block max-w-full overflow-visible">
+                  <img
+                    src={filePreview}
+                    alt="Selected image preview"
+                    className="block h-auto max-w-full rounded object-contain"
+                    onLoad={(event) => {
+                      setImageSize({
+                        width: event.currentTarget.naturalWidth,
+                        height: event.currentTarget.naturalHeight,
+                      });
+                    }}
+                  />
+                  {result &&
+                    imageSize.width > 0 &&
+                    imageSize.height > 0 &&
+                    result.output.elements?.map((element, index) => {
+                      const bounds = element.bounds as ImageBounds | undefined;
+                      if (
+                        !bounds ||
+                        typeof bounds.x !== "number" ||
+                        typeof bounds.y !== "number" ||
+                        typeof bounds.width !== "number" ||
+                        typeof bounds.height !== "number"
+                      ) {
+                        return null;
+                      }
+
+                      return (
+                        <div
+                          key={index}
+                          aria-label={`Detected element ${index + 1}`}
+                          className="pointer-events-none absolute border-2 border-[#587bc0] bg-[#7da9ce23] hover:bg-[#7daacecb]"
+                          onMouseEnter={() => {
+                            setHoveredElementId(index);
+                          }}
+                          style={{
+                            left: `${(bounds.x / imageSize.width) * 100}%`,
+                            top: `${(bounds.y / imageSize.height) * 100}%`,
+                            width: `${(bounds.width / imageSize.width) * 100}%`,
+                            height: `${(bounds.height / imageSize.height) * 100}%`,
+                          }}
+                        />
+                      );
+                    })}
+                </div>
               ) : (
                 <FileText className="upload-dropzone-icon" aria-hidden="true" />
               )}
@@ -216,32 +270,6 @@ export default function ExtractTextWindow() {
           <div className="mt-3 rounded-lg bg-white p-4">
             {view === "rendered" && (
               <div>
-                <div className="flex items-center justify-between gap-3 px-1 py-2">
-                  <span className="font-semibold text-[#212a3b]">Text</span>
-                  <div className=" flex items-center gap-3 text-sm text-[#3d485e]">
-                    <span className="rounded-full border border-[#d8cdbd] px-3 py-1">
-                      Language:{" "}
-                      <strong className="text-[#212a3b]">{language}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(result.markdown, "text")}
-                      aria-label="Copy full text"
-                      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-[#f3e4c7]"
-                    >
-                      {copiedKey === "text" ? (
-                        <Check className="size-4" />
-                      ) : (
-                        <Copy className="size-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                <hr className="my-4 border-[#d8cdbd]" />
-                <p className="whitespace-pre-wrap leading-6 text-[#212a3b]">
-                  {result.markdown}
-                </p>
-                <hr className="my-6 border-[#d8cdbd]" />
                 <article className="relative rounded-lg border border-[#d8cdbd] bg-[#f8f4e9] p-4">
                   <div className="mb-2 pr-12 text-xs font-semibold uppercase tracking-wide text-[#8b7355]">
                     RESULT
@@ -271,6 +299,7 @@ export default function ExtractTextWindow() {
                 elements={elements}
                 copiedKey={copiedKey}
                 onCopy={copyToClipboard}
+                hoveredElementId={hoveredElementId}
               />
             )}
 

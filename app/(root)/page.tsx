@@ -1,7 +1,7 @@
-import BookCard from "@/components/BookCard";
 import HeroSection from "@/components/HeroSection";
 import { getAllBooks } from "@/lib/actions/book.actions";
 import { connection } from "next/server";
+import BookLibrary from "@/components/BookLibrary";
 
 export const instant = false;
 
@@ -15,23 +15,7 @@ export default async function Page() {
     <main className="container wrapper">
       <HeroSection />
 
-      <div className="library-books-grid">
-        {books.length > 0 ? (
-          books.map((book) => (
-            <BookCard
-              key={book._id}
-              title={book.title}
-              author={book.author}
-              coverURL={book.coverURL}
-              slug={book.slug}
-            />
-          ))
-        ) : (
-          <p className="col-span-full text-center text-lg md:text-xl text-[#3d485e] leading-7 md:leading-8">
-            No books have been uploaded yet.
-          </p>
-        )}
-      </div>
+      <BookLibrary books={books} />
     </main>
   );
 }
