@@ -216,7 +216,10 @@ export function useVapi(book: IBook) {
           return;
         }
 
-        if (message.type === "model-output" && typeof message.output === "string") {
+        if (
+          message.type === "model-output" &&
+          typeof message.output === "string"
+        ) {
           setCurrentMessage(message.output.trim());
           return;
         }
@@ -309,7 +312,7 @@ export function useVapi(book: IBook) {
           );
         } else {
           setLimitError(
-            "Session ended unexpectedly. Click the mic to start again.",
+            "Vapi AI assistant is currently unavailable. Please try again later.",
           );
         }
 

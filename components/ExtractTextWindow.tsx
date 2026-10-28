@@ -64,6 +64,10 @@ export default function ExtractTextWindow() {
     setError("");
     setResult(null);
     setImageSize({ width: 0, height: 0 });
+    if (nextFile && nextFile?.size > 1 * 1024 * 1024) {
+      setError("File size exceeds 1MB limit.");
+      return;
+    }
     if (nextFile?.type.startsWith("image/")) {
       setFilePreview(URL.createObjectURL(nextFile));
     } else {
@@ -128,7 +132,7 @@ export default function ExtractTextWindow() {
         Extract text
       </h1>
       <p className="mt-2 text-[#3d485e]">
-        Upload a file and preserve its text and document structure.
+        Upload a photo or file and extract its text.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-5">

@@ -8,7 +8,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 
 import { IBook } from "@/types";
@@ -35,12 +35,41 @@ export default function WordFileReader({
   const pageRefs = useRef<HTMLElement[]>([]);
   const currentPageRef = useRef(1);
 
-  const [zoom, setZoom] = useState(1);
+  // fitZoom: automatic scale so the page fits the panel width
+  // userScale: what the zoom buttons change (1 = "fit to width")
+  const [fitZoom, setFitZoom] = useState(1);
+  const [userScale, setUserScale] = useState(1);
+  const zoom = fitZoom * userScale;
+
+  const MIN_SCALE = 0.5;
+  const MAX_SCALE = 1.5;
+
   const updateZoom = (amount: number) => {
-    setZoom((currentZoom) =>
-      Math.min(1.5, Math.max(0.75, Math.round((currentZoom + amount) * 100) / 100)),
+    setUserScale((current) =>
+      Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, Math.round((current + amount) * 100) / 100),
+      ),
     );
   };
+
+  const fitToWidth = useCallback(() => {
+    const viewer = viewerRef.current;
+    const container = documentRef.current;
+    const page = container?.querySelector<HTMLElement>(".docx");
+    if (!viewer || !container || !page) return;
+
+    // measure the page at its real size, then put the zoom back
+    const previousZoom = container.style.zoom;
+    container.style.zoom = "1";
+    const naturalWidth = page.getBoundingClientRect().width;
+    container.style.zoom = previousZoom;
+
+    const available = viewer.clientWidth - 48; // 24px breathing room per side
+    if (!naturalWidth || available <= 0) return;
+
+    setFitZoom(Math.min(1.5, Math.max(0.3, available / naturalWidth)));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +110,8 @@ export default function WordFileReader({
         currentPageRef.current = 1;
         setCurrentPage(1);
         setPageInput("1");
+
+        fitToWidth(); // pages exist now, so we can measure them
       } catch (loadError) {
         console.error("Failed to render Word document:", loadError);
         if (!cancelled) {
@@ -99,7 +130,17 @@ export default function WordFileReader({
       document?.replaceChildren();
       pageRefs.current = [];
     };
-  }, [book.fileURL]);
+  }, [book.fileURL, fitToWidth]);
+
+  // Re-fit when the panel size changes (window resize, chat sidebar toggling)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    const observer = new ResizeObserver(() => fitToWidth());
+    observer.observe(viewer);
+    return () => observer.disconnect();
+  }, [fitToWidth]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -193,7 +234,7 @@ export default function WordFileReader({
             type="button"
             aria-label="Zoom in"
             onClick={() => updateZoom(0.1)}
-            disabled={zoom >= 1.5}
+            disabled={userScale >= MAX_SCALE}
             className="rounded-full p-2 text-[#555] hover:bg-[#f3e4c7] disabled:opacity-30"
           >
             <ZoomIn className="size-5" />
@@ -202,7 +243,7 @@ export default function WordFileReader({
             type="button"
             aria-label="Zoom out"
             onClick={() => updateZoom(-0.1)}
-            disabled={zoom <= 0.75}
+            disabled={userScale <= MIN_SCALE}
             className="rounded-full p-2 text-[#555] hover:bg-[#f3e4c7] disabled:opacity-30"
           >
             <ZoomOut className="size-5" />
@@ -210,8 +251,8 @@ export default function WordFileReader({
           <button
             type="button"
             aria-label="Reset zoom"
-            onClick={() => setZoom(1)}
-            disabled={zoom === 1}
+            onClick={() => setUserScale(1)}
+            disabled={userScale === 1}
             className="rounded-full p-2 text-[#555] hover:bg-[#f3e4c7] disabled:opacity-30"
           >
             <RotateCcw className="size-4" />
@@ -221,7 +262,7 @@ export default function WordFileReader({
 
       <section
         ref={viewerRef}
-        className="min-h-[620px] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-[#eadfce] bg-[#e9dfcf] shadow-[0_8px_30px_rgba(61,48,34,0.08)] lg:h-[calc(100vh-6rem)]"
+        className="min-h-[620px] min-w-0 flex-1 overflow-auto rounded-2xl border border-[#eadfce] bg-[#e9dfcf] shadow-[0_8px_30px_rgba(61,48,34,0.08)] lg:h-[calc(100vh-6rem)]"
       >
         {isLoading && (
           <p className="py-8 text-center text-sm text-[#777]">
@@ -230,7 +271,7 @@ export default function WordFileReader({
         )}
         <div
           ref={documentRef}
-          className="docx-reader mx-auto max-w-4xl"
+          className="docx-reader w-max min-w-full"
           style={{ zoom }}
         />
         {error && (

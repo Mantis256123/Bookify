@@ -5,7 +5,7 @@ const BookSchema = new Schema<IBook>(
   {
     clerkId: { type: String, required: true },
     title: { type: String, required: true },
-    description: { type: String, required: true, default: "" },
+    description: { type: String, default: "" },
     slug: {
       type: String,
       required: true,

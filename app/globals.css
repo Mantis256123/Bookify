@@ -683,10 +683,10 @@
   }
 
   .docx-reader .docx-wrapper {
-    @apply flex w-full flex-col items-center gap-5 bg-transparent p-0;
+    @apply flex w-max min-w-full flex-col items-center gap-5 bg-transparent p-0 py-4;
   }
   .docx-reader .docx {
-    @apply mx-auto shadow-[0_4px_18px_rgba(61,48,34,0.16)];
+    @apply mx-0 shadow-[0_4px_18px_rgba(61,48,34,0.16)];
   }
   /* ===========================================
      VOICE SELECTOR COMPONENT

@@ -160,7 +160,7 @@ const UploadForm = () => {
       const book = await createBook({
         clerkId: userId,
         title: values.title,
-        description: values.description,
+        description: values?.description,
         author: values.author,
         persona: values.voice,
         fileURL: uploadedBookBlob.url,
